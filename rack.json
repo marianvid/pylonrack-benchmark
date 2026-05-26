@@ -1,7 +1,7 @@
 {
   "name": "Benchmark",
   "version": "1.0",
-  "start": "python3 server.py",
+  "start": "conda run -n pylonrack python3 server.py",
   "port": 8766,
   "heartbeat_interval": 5,
   "controls": [
