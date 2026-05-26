@@ -1,0 +1,31 @@
+{
+  "name": "Benchmark",
+  "version": "1.0",
+  "start": "python3 server.py",
+  "port": 8766,
+  "heartbeat_interval": 5,
+  "controls": [
+    {
+      "id": "model_select",
+      "type": "dropdown",
+      "label": "Model"
+    },
+    {
+      "id": "parallel",
+      "type": "dropdown",
+      "label": "Parallel"
+    },
+    {
+      "id": "run",
+      "type": "button",
+      "label": "Run",
+      "style": "primary"
+    },
+    {
+      "id": "status_label",
+      "type": "label",
+      "value": "Idle",
+      "style": "default"
+    }
+  ]
+}
