@@ -1,24 +1,35 @@
-# pylonrack-benchmark
+# pylonrack-calibrate
 
-PylonRack slot application for benchmarking **llama.cpp** models — measures inference throughput (tok/s) with configurable parallel requests and parameters, persists results per model.
+PylonRack slot for **automated calibration** of `llama-server` parameters. Given a list of local GGUF models, runs a parameter sweep to find the best `llama-server` configuration for each model, in two distinct profiles:
+
+- **Single-use** (chat): optimizes decode tok/s and TTFT (time-to-first-token)
+- **Throughput** (parallel pipeline): optimizes aggregate tok/s across N parallel slots
+
+Persists results as a history of *suites* and surfaces a **winner** per (model, profile) — with a copy-pastable `llama-server` command.
 
 ---
 
-## What it does
+## How it works
 
-- **Model dropdown** — scans your HuggingFace cache and lists all `.gguf` files
-- **Parallel dropdown** — select number of simultaneous requests `[1, 2, 4, 8, 16, 24]`
-- **Run button** — starts a benchmark: launches a dedicated llama-server instance, fires N parallel chat requests, measures throughput, shuts down the server
-- **Status label** — shows last result (tok/s) or current state
-- **Log panel** — full benchmark output including llama-server startup and request results
-- **Persistence** — results saved per model in `~/.pylonrack/benchmark_results.json`, up to 10 runs per model
+1. You select models from your HuggingFace cache (multi-select)
+2. You pick profiles (single, throughput, or both)
+3. You pick a budget (Quick / Standard / Thorough — controls sweep depth)
+4. The slot runs each parameter combination sequentially:
+   - Starts a temporary `llama-server` on `bench_port`
+   - Sends a warmup request (discarded)
+   - Sends 3 measurement requests with `ignore_eos: true` and `cache_prompt: false`
+   - Records the `timings` object from each response (authoritative server-side measurement)
+   - Stops the server
+   - Aggregates samples via median
+5. After all runs, winners are picked: max decode tok/s for single, max aggregate tok/s for throughput
 
 ---
 
 ## Requirements
 
+- macOS 14+ on Apple Silicon
 - Python 3.11+
-- A working [llama.cpp](https://github.com/ggerganov/llama.cpp) build (`llama-server` binary)
+- A working [llama.cpp](https://github.com/ggerganov/llama.cpp) build (`llama-server` binary at `b9415` or later)
 - HuggingFace cache with `.gguf` model files
 - [PylonRack](https://github.com/marianvid/pylonrack) installed
 
@@ -26,168 +37,193 @@ PylonRack slot application for benchmarking **llama.cpp** models — measures in
 
 ## Installation
 
-### 1. Clone
-
 ```
-git clone https://github.com/marianvid/pylonrack-benchmark
-cd pylonrack-benchmark
+git clone https://github.com/marianvid/pylonrack-calibrate
+cd pylonrack-calibrate
 ```
 
-### 2. Install dependencies
+Dependencies install automatically on first launch via `start.sh`.
 
-```
-conda activate pylonrack
-pip install -r requirements.txt
-```
-
-Or with any Python 3.11+:
-
-```
-pip install -r requirements.txt
-```
-
-Dependencies: `websockets`, `aiohttp`, `psutil`, `requests`
-
-### 3. Configure
-
-Copy and edit `settings.json`:
+### Configure `settings.json`
 
 ```json
 {
-  "llama_bin":    "/path/to/llama.cpp/build/bin/llama-server",
-  "hf_cache":     "/path/to/HuggingFace/hub",
-  "bench_port":   1235,
-  "prompt":       "Explain the importance of 400GB/s memory bandwidth for LLM inference on Apple Silicon in 150 words.",
-  "results_file": "~/.pylonrack/benchmark_results.json",
-  "params": {
-    "ctx_size":          32768,
-    "parallel":          16,
-    "batch_size":        2048,
-    "ubatch_size":       256,
-    "threads":           8,
-    "n_gpu_layers":      99,
-    "cache_reuse":       200,
-    "flash_attn":        true,
-    "cont_batching":     true,
-    "spec_type":         null,
-    "spec_ngram_size_n": null,
-    "draft":             null,
-    "reasoning_budget":  null,
-    "enable_thinking":   null
-  }
+  "llama_bin":      "/path/to/llama.cpp/build/bin/llama-server",
+  "hf_cache":       "/path/to/HuggingFace/hub",
+  "bench_port":     1235,
+  "results_file":   "~/.pylonrack/calibrate_results.json",
+  "log_file":       "~/.pylonrack/calibrate.log",
+  "n_predict":      256,
+  "runs_per_combo": 3,
+  "min_memory_gb":  6.0
 }
 ```
 
 | Key | Description |
 |-----|-------------|
 | `llama_bin` | Absolute path to compiled `llama-server` binary |
-| `hf_cache` | Absolute path to HuggingFace hub cache |
-| `bench_port` | Port for the temporary benchmark llama-server (separate from your main instance) |
-| `prompt` | The prompt sent to the model during benchmarking |
-| `results_file` | Where benchmark results are stored |
-| `params.ctx_size` | Context size for the benchmark server |
-| `params.parallel` | Server slots (should be ≥ your max parallel requests) |
-| `params.n_gpu_layers` | GPU layers offloaded to Metal |
-| `params.flash_attn` | Enable Flash Attention |
-| `params.cont_batching` | Enable continuous batching |
-| `params.reasoning_budget` | Token budget for reasoning models (`null` = no limit) |
-| `params.enable_thinking` | Force thinking on/off for models that support it (`null` = model default) |
+| `hf_cache` | Absolute path to your HuggingFace hub cache |
+| `bench_port` | Port used by the temporary calibration `llama-server` (separate from your main instance) |
+| `n_predict` | Tokens to generate per sample (with `ignore_eos`, this is exact) |
+| `runs_per_combo` | Number of measurement samples per parameter combination (median taken) |
+| `min_memory_gb` | Refuse to start a suite if available memory is below this |
 
 `settings.json` is gitignored.
-
-### 4. Update `rack.json` start command
-
-```json
-{
-  "start": "/path/to/your/python3 server.py"
-}
-```
-
-For conda:
-```json
-{
-  "start": "conda run -n pylonrack python3 server.py"
-}
-```
 
 ---
 
 ## Adding to PylonRack
 
-1. Open PylonRack (menu bar icon)
-2. Click `+` in the slot list
-3. Click **Browse…** and select this folder
-4. Click **Add**
-5. Press **▶** to activate
+1. Open PylonRack
+2. Click `+` and browse to this folder
+3. Press ▶ to activate the slot
 
 ---
 
-## Controls
+## Header controls
 
 | Control | Type | Description |
-|---------|------|-------------|
-| Model | Dropdown | Select from all `.gguf` files in HF cache |
-| Parallel | Dropdown | Number of simultaneous requests: 1, 2, 4, 8, 16, 24 |
-| Run | Button | Execute benchmark |
-| Status | Label | Last result (tok/s) or current state |
+|---|---|---|
+| Start Suite | Button | Toggles between Start (when idle) and Stop Suite (while running) |
+| Progress | Label | Currently running model + parameters, or status |
+| ETA | Label | Estimated time remaining |
+| Metric | Label | Last measurement value (decode tok/s · TTFT, or aggregate tok/s) |
+
+The slot exposes a `ui_url` — the main UI lives in the WebView panel, not in the header.
 
 ---
 
-## How a benchmark run works
+## WebView UI
 
-1. Any stale process on `bench_port` is terminated
-2. `llama-server` is launched on `bench_port` with the configured params
-3. Waits up to 90 seconds for the server to become ready
-4. Fires N parallel `POST /v1/chat/completions` requests simultaneously
-5. Measures wall-clock time and total tokens generated
-6. Computes throughput: `total_tokens / wall_time`
-7. Stops `llama-server`
-8. Result is shown in the status label and saved to `results_file`
+Three tabs:
 
-The benchmark server runs on a **separate port** (`bench_port`) from your main llama-server — you can run a benchmark while your main instance stays running.
+### Setup
+- Models list with per-model size, fit status (ok / tight / no fit) relative to current available memory
+- Profile cards (toggleable): Single-use / Throughput
+- Budget radios: Quick (~2 combos/profile) / Standard (~4-5) / Thorough (~7-8)
+- Mode toggle: Auto sweep (default) or Manual matrix (advanced — coming)
+- Start Suite button + ETA preview
+
+### Live Run
+- Suite ID + current status + elapsed/ETA counters + progress bar
+- Live table of runs (one row per parameter combination, plus a placeholder for the running one)
+- Winners cards once the suite completes
+
+### History
+- List of all past suites with duration, run count, profiles tested
+- Click a row to expand: full winners + runs table for that suite
+- Delete button per suite
 
 ---
 
-## Results storage
+## Fixed prompts
 
-Results are stored in `~/.pylonrack/benchmark_results.json`:
+Each suite uses three fixed prompts of different lengths to characterize prefill behaviour:
 
-```json
-{
-  "models": {
-    "/path/to/model.gguf": {
-      "params": { ... },
-      "runs": [
-        {
-          "date": "2026-05-26 10:00",
-          "tok_s": 244.5,
-          "tokens": 1200,
-          "elapsed": 4.91,
-          "parallel": 16,
-          "params": { ... }
-        }
-      ]
-    }
-  }
-}
-```
+- **SHORT** (~32 tokens) — chat scale, used for throughput profile
+- **MEDIUM** (~440 tokens) — single-article scale, used for single profile
+- **LONG** (~3660 tokens) — long-context / consolidation scale
 
-Up to 10 runs are kept per model (oldest are dropped).
+Content is intentionally generic — calibration measures the engine, not the response quality. Only the token count and structure matter.
+
+---
+
+## Auto sweep strategy
+
+### Single-use
+| Budget | Combinations |
+|---|---|
+| Quick | ub=512, ub=2048 |
+| Standard | ub=512, ub=1024, ub=2048, plus one larger ctx |
+| Thorough | grid over ub × ctx × flash_attn |
+
+### Throughput
+| Budget | Combinations |
+|---|---|
+| Quick | parallel=4, parallel=8 |
+| Standard | parallel=2/4/8/16 + best parallel × bigger batch |
+| Thorough | full grid over parallel × batch/ubatch |
+
+---
+
+## Resource check
+
+Before starting a suite, the slot checks available memory via `vm_stat`:
+- Memory accounting: `free + inactive + purgeable + speculative`
+- Per-model fit estimate: weights + KV-cache + 2 GB safety margin
+- Detects active `pylonrack-llama` slots and warns
+
+If any selected model can't fit, the suite refuses to start.
 
 ---
 
 ## File structure
 
 ```
-pylonrack-benchmark/
+pylonrack-calibrate/
 ├── rack.json              ← PylonRack slot manifest
 ├── settings.json          ← local configuration (gitignored)
-├── server.py              ← WebSocket server (PylonRack protocol)
-├── config.py              ← configuration loader with defaults
-├── model_scanner.py       ← HF cache scanner
-├── benchmark_runner.py    ← llama-server lifecycle + async requests
-├── results_store.py       ← JSON persistence
-└── requirements.txt
+├── start.sh               ← venv bootstrap + launch
+├── server.py              ← WebSocket + HTTP server, AppState, dispatch
+├── config.py              ← AppConfig
+├── prompts.py             ← three fixed prompts (short/medium/long)
+├── metrics.py             ← Sample + Aggregate extraction from `timings`
+├── resources.py           ← memory check + pylonrack-llama detection
+├── sweep_strategy.py      ← auto-sweep / manual-matrix run spec builder
+├── llama_runner.py        ← one llama-server lifecycle per run
+├── suite_runner.py        ← orchestrates a full suite
+├── results_store.py       ← schema v2 JSON persistence
+├── model_scanner.py       ← scans HF cache for .gguf
+├── requirements.txt
+├── static/                ← WebView UI
+│   ├── index.html
+│   ├── css/style.css
+│   └── js/app.js
+└── tests/
+    ├── test_e2e.py        ← backend smoke test (no WS)
+    └── test_e2e_ws.py     ← full WebSocket flow test
+```
+
+---
+
+## Results schema
+
+`~/.pylonrack/calibrate_results.json`:
+
+```json
+{
+  "version": 2,
+  "suites": [
+    {
+      "id":            "suite_YYYYMMDD_HHMMSS",
+      "started_at":    "ISO timestamp",
+      "duration_sec":  int,
+      "budget":        "quick|standard|thorough",
+      "mode":          "auto|manual",
+      "profiles":      ["single", "throughput"],
+      "models_tested": [path, ...],
+      "runs": [
+        {
+          "model":       path,
+          "profile":     "single|throughput",
+          "label":       "ub=2048, ctx=8192",
+          "params":      {...},
+          "prompt_name": "medium",
+          "samples":     [...],
+          "aggregate":   {...},
+          "status":      "ok|failed",
+          "error":       null
+        }
+      ],
+      "winners": {
+        "<model_path>": {
+          "single":     {"label", "params", "aggregate", "command"},
+          "throughput": {...}
+        }
+      }
+    }
+  ]
+}
 ```
 
 ---

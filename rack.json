@@ -1,31 +1,33 @@
 {
-  "name": "Benchmark",
-  "version": "1.0",
+  "name": "Model Calibrate",
+  "version": "2.0",
   "start": "zsh start.sh",
   "startup_delay": 3,
-  "port": 8766,
+  "port": 8767,
   "heartbeat_interval": 5,
   "controls": [
     {
-      "id": "model_select",
-      "type": "dropdown",
-      "label": "Model"
-    },
-    {
-      "id": "parallel",
-      "type": "dropdown",
-      "label": "Parallel"
-    },
-    {
-      "id": "run",
+      "id": "suite_toggle",
       "type": "button",
-      "label": "Run",
+      "label": "Start Suite",
       "style": "primary"
     },
     {
-      "id": "status_label",
+      "id": "progress_label",
       "type": "label",
       "value": "Idle",
+      "style": "default"
+    },
+    {
+      "id": "eta_label",
+      "type": "label",
+      "value": "",
+      "style": "default"
+    },
+    {
+      "id": "metric_label",
+      "type": "label",
+      "value": "",
       "style": "default"
     }
   ]

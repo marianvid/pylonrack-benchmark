@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Model Calibrate</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="setup">Setup</button>
+  <button class="tab" data-tab="live">Live Run</button>
+  <button class="tab" data-tab="history">History</button>
+  <div class="tab-status" id="connection-status">connecting…</div>
+</nav>
+
+<!-- ===== SETUP TAB ===== -->
+<section class="tab-panel active" id="tab-setup">
+
+  <div class="resources-bar" id="resources-bar">
+    <div class="res-label">Memory:</div>
+    <div class="res-value" id="res-available">— GB available</div>
+    <div class="res-bar-wrap"><div class="res-bar-fill" id="res-bar-fill"></div></div>
+    <div class="res-warn" id="res-warning"></div>
+  </div>
+
+  <div class="card">
+    <h2>1. Select models</h2>
+    <div id="models-list" class="models-list">
+      <div class="loading">Loading models…</div>
+    </div>
+    <div class="selection-summary" id="selection-summary"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. Profiles</h2>
+    <div class="profile-cards">
+      <div class="profile-card selected" data-profile="single">
+        <div class="profile-title">Single-use</div>
+        <div class="profile-desc">Chat / single-request workload.<br>Optimizes decode tok/s &amp; TTFT.</div>
+      </div>
+      <div class="profile-card selected" data-profile="throughput">
+        <div class="profile-title">Throughput</div>
+        <div class="profile-desc">Parallel pipeline workload.<br>Optimizes aggregate tok/s.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3. Budget</h2>
+    <div class="budget-options">
+      <label class="budget-radio">
+        <input type="radio" name="budget" value="quick">
+        <span class="budget-name">Quick</span>
+        <span class="budget-hint">2 combinations/profile</span>
+      </label>
+      <label class="budget-radio">
+        <input type="radio" name="budget" value="standard" checked>
+        <span class="budget-name">Standard</span>
+        <span class="budget-hint">4-5 combinations/profile</span>
+      </label>
+      <label class="budget-radio">
+        <input type="radio" name="budget" value="thorough">
+        <span class="budget-name">Thorough</span>
+        <span class="budget-hint">7-8 combinations/profile</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card mode-card">
+    <h2>4. Mode</h2>
+    <div class="mode-toggle">
+      <label><input type="radio" name="mode" value="auto" checked> Auto sweep</label>
+      <label><input type="radio" name="mode" value="manual" disabled> Manual matrix (advanced — coming soon)</label>
+    </div>
+  </div>
+
+  <div class="actions-row">
+    <button class="btn primary" id="btn-start-suite">Start Suite</button>
+    <div class="eta-preview" id="eta-preview"></div>
+  </div>
+</section>
+
+<!-- ===== LIVE TAB ===== -->
+<section class="tab-panel" id="tab-live">
+  <div class="card live-summary">
+    <div class="live-header">
+      <div class="live-left">
+        <div class="live-suite-id" id="live-suite-id">—</div>
+        <div class="live-progress-text" id="live-progress-text">Idle</div>
+      </div>
+      <div class="live-counters">
+        <div class="live-counter">
+          <div class="ctr-label">Progress</div>
+          <div class="ctr-value" id="live-counter-progress">— / —</div>
+        </div>
+        <div class="live-counter">
+          <div class="ctr-label">Elapsed</div>
+          <div class="ctr-value" id="live-counter-elapsed">—</div>
+        </div>
+        <div class="live-counter">
+          <div class="ctr-label">ETA</div>
+          <div class="ctr-value" id="live-counter-eta">—</div>
+        </div>
+      </div>
+      <button class="btn stop" id="btn-stop-suite" disabled>Stop</button>
+    </div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill" id="progress-bar-fill"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Runs in this suite</h2>
+    <div class="runs-table-wrap">
+      <table class="runs-table" id="runs-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Model</th>
+            <th>Profile</th>
+            <th>Params</th>
+            <th>Prefill</th>
+            <th>Decode</th>
+            <th>TTFT</th>
+            <th>Aggregate</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="runs-tbody">
+          <tr><td colspan="9" class="empty">No runs yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card winners-card" id="winners-card" style="display:none;">
+    <h2>Winners</h2>
+    <div class="winners-grid" id="winners-grid"></div>
+  </div>
+</section>
+
+<!-- ===== HISTORY TAB ===== -->
+<section class="tab-panel" id="tab-history">
+  <div class="card">
+    <div class="card-header">
+      <h2>Past suites</h2>
+      <button class="btn" id="btn-refresh-history">Refresh</button>
+    </div>
+    <div id="history-list" class="history-list">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card" id="history-detail" style="display:none;">
+    <div class="card-header">
+      <h2 id="history-detail-title">—</h2>
+      <button class="btn" id="btn-close-detail">Close</button>
+    </div>
+    <div id="history-detail-content"></div>
+  </div>
+</section>
+
+<script src="js/app.js"></script>
+</body>
+</html>
