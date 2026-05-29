@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 import websockets
+from aiohttp import web
 from websockets import ServerConnection
 
 import config as cfg_module
@@ -78,7 +79,7 @@ class AppState:
 # Message builders
 # ---------------------------------------------------------------------------
 
-def _manifest() -> dict:
+def _manifest(ui_port: int) -> dict:
     return {
         "type":    "manifest",
         "name":    "Model Calibrate",
@@ -90,7 +91,7 @@ def _manifest() -> dict:
             {"id": "eta_label",      "type": "label",  "value": "", "style": "default"},
             {"id": "metric_label",   "type": "label",  "value": "", "style": "default"},
         ],
-        # ui_url omitted for now — UI delivered in the next phase
+        "ui_url": f"http://localhost:{ui_port}/index.html",
     }
 
 
@@ -126,8 +127,9 @@ def _header_update(state: AppState) -> dict:
 # ---------------------------------------------------------------------------
 
 class SlotHandler:
-    def __init__(self, state: AppState) -> None:
+    def __init__(self, state: AppState, ui_port: int) -> None:
         self._state = state
+        self._ui_port = ui_port
 
     async def handle(self, ws: ServerConnection) -> None:
         log.info("Client connected from %s", ws.remote_address)
@@ -150,7 +152,7 @@ class SlotHandler:
         t = msg.get("type", "")
 
         if t == "manifest":
-            await self._send(ws, _manifest())
+            await self._send(ws, _manifest(self._ui_port))
             await self._send(ws, _header_update(self._state))
 
         elif t == "ping":
@@ -464,21 +466,42 @@ class SlotHandler:
 async def main() -> None:
     rack_json = Path(__file__).parent / "rack.json"
     manifest  = json.loads(rack_json.read_text())
-    port      = int(manifest.get("port", 8767))
+    ws_port   = int(manifest.get("port", 8767))
     port_env  = __import__("os").environ.get("PYLON_PORT")
     if port_env:
         try:
-            port = int(port_env)
+            ws_port = int(port_env)
         except ValueError:
             pass
+
+    # HTTP UI server on ws_port + 100 (e.g. 8867 if ws is 8767)
+    ui_port = ws_port + 100
 
     state = AppState()
     state.refresh_models()
 
-    handler = SlotHandler(state)
-    log.info("PylonRack model-calibrate slot starting on ws://localhost:%d", port)
+    handler = SlotHandler(state, ui_port)
 
-    async with websockets.serve(handler.handle, "localhost", port):
+    # ---- HTTP server for static UI ----
+    static_dir = Path(__file__).parent / "static"
+    app = web.Application()
+
+    async def _root(_req):
+        raise web.HTTPFound("/index.html")
+    async def _config(_req):
+        return web.json_response({"ws_port": ws_port})
+
+    app.router.add_get("/",       _root)
+    app.router.add_get("/config", _config)
+    app.router.add_static("/",    path=str(static_dir), show_index=False)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "localhost", ui_port)
+    await site.start()
+    log.info("HTTP UI server on http://localhost:%d", ui_port)
+
+    log.info("PylonRack model-calibrate slot starting on ws://localhost:%d", ws_port)
+    async with websockets.serve(handler.handle, "localhost", ws_port):
         await asyncio.Future()
 
 
